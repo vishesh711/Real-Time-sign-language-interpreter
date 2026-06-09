@@ -1,0 +1,20 @@
+{
+  "name": "sign-language-interpreter",
+  "version": "1.0.0",
+  "description": "Real-time ASL/BSL sign language interpreter",
+  "type": "module",
+  "scripts": {
+    "test": "vitest --run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.18.0",
+    "@huggingface/transformers": "3.0.0"
+  },
+  "devDependencies": {
+    "fast-check": "3.20.0",
+    "vitest": "1.6.0",
+    "typescript": "5.5.3",
+    "@types/node": "20.14.10"
+  }
+}

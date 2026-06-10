@@ -140,7 +140,7 @@ This plan implements a real-time ASL/BSL sign language interpreter in incrementa
     - **Property 3: PredictionGate commits exactly once per stable run**
     - **Validates: Requirements 2.4, 9.5, 9.6**
 
-- [-] 9. Implement post-processing and output buffer
+- [x] 9. Implement post-processing and output buffer
   - [x] 9.1 Implement OutputBuffer
     - Write `browser/output_buffer.ts` with `OutputBuffer`: `accept(word)`, `backspace()`, `clear()`, `setCandidate()`, `render()` returning `{ committed, candidate }`
     - _Requirements: 5.3, 5.4, 5.10_
@@ -169,53 +169,53 @@ This plan implements a real-time ASL/BSL sign language interpreter in incrementa
     - Write `browser/gloss_processor.ts` loading T5-small via Transformers.js (`dtype: 'q8'`), staged loading (after ONNX classifier), `glossToEnglish(glosses)` returning non-empty string or raw gloss fallback
     - _Requirements: 5.9, 3.4_
 
-  - [ ] 9.8 Write property test for gloss-to-English output (fast-check)
+  - [x] 9.8 Write property test for gloss-to-English output (fast-check)
     - **Property 5: Gloss-to-English returns non-empty string**
     - **Validates: Requirements 3.4, 5.9**
 
-  - [ ] 9.9 Implement TTS integration
+  - [x] 9.9 Implement TTS integration
     - Wire Web Speech API (`SpeechSynthesisUtterance`) for browser TTS and pyttsx3 for server fallback; implement text serialize/deserialize fidelity check before synthesis
     - _Requirements: 5.2, 5.5_
 
-  - [ ] 9.10 Write property test for TTS text round-trip (fast-check)
+  - [x] 9.10 Write property test for TTS text round-trip (fast-check)
     - **Property 8: TTS text round-trip**
     - **Validates: Requirements 5.5**
 
-- [ ] 10. Implement confidence gate and input quality monitor
-  - [ ] 10.1 Implement MediaPipe confidence gate in Python
+- [x] 10. Implement confidence gate and input quality monitor
+  - [x] 10.1 Implement MediaPipe confidence gate in Python
     - Write `utils/extractor.py::ConfidenceGate.should_classify(detection_conf, visible_lm_count)` — returns True only when `detection_conf ≥ 0.8` AND `visible_lm_count ≥ 18`
     - _Requirements: 1.7_
 
-  - [ ] 10.2 Write property test for confidence gate (Hypothesis)
+  - [x] 10.2 Write property test for confidence gate (Hypothesis)
     - **Property 1: Confidence gate rejects low-quality frames**
     - **Validates: Requirements 1.7**
 
-  - [ ] 10.3 Implement InputQualityMonitor
+  - [x] 10.3 Implement InputQualityMonitor
     - Write `browser/quality_monitor.ts` sampling every 10 frames: read MediaPipe detection confidence, estimate hand-region luminance, track delivered FPS, count visible hands; expose `QualityStatus` to UI
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-  - [ ] 10.4 Write property test for classifier confidence range (Hypothesis)
+  - [x] 10.4 Write property test for classifier confidence range (Hypothesis)
     - **Property 2: Classifier confidence is always a valid probability**
     - **Validates: Requirements 2.2, 3.2**
 
-  - [ ] 10.5 Write property test for landmark payload schema (Hypothesis)
+  - [x] 10.5 Write property test for landmark payload schema (Hypothesis)
     - **Property 6: Landmark payload contains no raw image data**
     - **Validates: Requirements 3.5, 4.4**
 
-- [ ] 11. Implement browser ASLClient and main UI
-  - [ ] 11.1 Implement ASLClient WebSocket client
+- [x] 11. Implement browser ASLClient and main UI
+  - [x] 11.1 Implement ASLClient WebSocket client
     - Write `browser/asl_client.ts` with `ASLClient`: MediaPipe initialization, landmark normalization, WS connection with exponential backoff reconnect (500ms → 8s), 10s ping/pong keepalive, `onPrediction` / `onAccepted` / `onStatus` / `onError` callbacks
     - _Requirements: 4.4, 4.5, 6.1_
 
-  - [ ] 11.2 Build main demo UI
+  - [x] 11.2 Build main demo UI
     - Write `browser/index.html` with: video preview + canvas skeleton overlay, big prediction display (green if confident, gray if uncertain), confidence bar, top-5 chips, word buffer panel with cursor, camera status indicator (detection conf / luminance / FPS / hands), controls (Start / Clear / Space / Speak), TTS button, backend badge (WebGPU / WASM)
     - _Requirements: 5.1, 5.3, 5.6, 9.1, 9.2, 9.3_
 
-- [ ] 12. Checkpoint — ensure all tests pass
+- [x] 12. Checkpoint — ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 13. WebRTC embedding
-  - [ ] 13.1 Implement WebRTC stream interceptor
+  - [x] 13.1 Implement WebRTC stream interceptor
     - Write `browser/webrtc_adapter.ts` intercepting `getUserMedia` media stream, running MediaPipe on each captured frame, overlaying caption panel on the video element
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
 

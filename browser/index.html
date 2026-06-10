@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Language Interpreter</title>
+  <style>
+    /* =====================================================================
+       Reset & Base
+       ===================================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-page:        #0f1117;
+      --bg-card:        #1a1d27;
+      --bg-card2:       #222636;
+      --bg-input:       #12151e;
+      --border:         #2e3347;
+      --text-primary:   #e8eaf0;
+      --text-muted:     #8b90a8;
+      --text-dim:       #555a72;
+      --accent-green:   #22c55e;
+      --accent-blue:    #3b82f6;
+      --accent-yellow:  #facc15;
+      --accent-red:     #ef4444;
+      --accent-gray:    #9ca3af;
+      --chip-bg:        #1e2235;
+      --chip-border:    #2e3347;
+      --radius-sm:      6px;
+      --radius-md:      10px;
+      --radius-lg:      14px;
+      --shadow:         0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    /* =====================================================================
+       Layout
+       ===================================================================== */
+    .app-shell {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        "header  header"
+        "main    sidebar"
+        "footer  footer";
+      min-height: 100vh;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 16px;
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "header"
+          "main"
+          "sidebar"
+          "footer";
+      }
+    }
+
+    /* =====================================================================
+       Header
+       ===================================================================== */
+    .app-header {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+    }
+
+    .app-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .app-title svg {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    /* Backend badge */
+    #backend-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      transition: color 0.3s, border-color 0.3s;
+    }
+
+    #backend-badge.webgpu {
+      color: var(--accent-green);
+      border-color: var(--accent-green);
+    }
+
+    #backend-badge.wasm {
+      color: var(--accent-yellow);
+      border-color: var(--accent-yellow);
+    }
+
+    #backend-badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+    }
+
+    /* Mode selector */
+    .mode-selector {
+      display: flex;
+      gap: 4px;
+      background: var(--bg-input);
+      border-radius: var(--radius-sm);
+      padding: 3px;
+    }
+
+    .mode-btn {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-muted);
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .mode-btn.active {
+      background: var(--accent-blue);
+      color: #fff;
+    }
+
+    /* =====================================================================
+       Main panel — camera + prediction
+       ===================================================================== */
+    .main-panel {
+      grid-area: main;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Camera card */
+    .camera-card {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      aspect-ratio: 4/3;
+      max-height: 520px;
+    }
+
+    #video-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: scaleX(-1); /* mirror for natural feel */
+    }
+
+    #skeleton-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      transform: scaleX(-1);
+    }
+
+    /* Status overlay in camera corner */
+    .camera-overlay-status {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 99px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      transition: color 0.3s, border-color 0.3s;
+    }
+
+    .status-pill.warn {
+      color: var(--accent-yellow);
+      border-color: rgba(250,204,21,0.3);
+    }
+
+    .status-pill.poor {
+      color: var(--accent-red);
+      border-color: rgba(239,68,68,0.3);
+    }
+
+    .status-pill.good {
+      color: var(--accent-green);
+      border-color: rgba(34,197,94,0.2);
+    }
+
+    /* No-camera placeholder */
+    .camera-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    .camera-placeholder svg {
+      width: 48px;
+      height: 48px;
+      opacity: 0.35;
+    }
+
+    /* Prediction card */
+    .prediction-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .prediction-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    /* Big prediction letter / word */
+    #prediction-label {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1;
+      min-width: 80px;
+      text-align: center;
+      color: var(--accent-gray);
+      transition: color 0.25s;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #prediction-label.confident {
+      color: var(--accent-green);
+    }
+
+    .prediction-meta {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .prediction-desc {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* Confidence bar */
+    .conf-bar-track {
+      height: 8px;
+      background: var(--bg-input);
+      border-radius: 99px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #conf-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-gray);
+      border-radius: 99px;
+      transition: width 0.15s ease-out, background 0.25s;
+    }
+
+    #conf-bar-fill.confident {
+      background: var(--accent-green);
+    }
+
+    #conf-pct {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    .conf-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Top-5 chips */
+    .top5-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: var(--chip-bg);
+      border: 1px solid var(--chip-border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .chip.top-chip {
+      border-color: var(--accent-blue);
+      color: var(--text-primary);
+    }
+
+    .chip-prob {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+    }
+
+    /* =====================================================================
+       Sidebar
+       ===================================================================== */
+    .sidebar {
+      grid-area: sidebar;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+
+    .card-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    /* Word buffer / transcript */
+    #word-buffer {
+      min-height: 80px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 1.1rem;
+      line-height: 1.7;
+      word-break: break-word;
+      color: var(--text-primary);
+    }
+
+    #word-buffer .committed-text {
+      color: var(--text-primary);
+    }
+
+    /* Candidate shown distinctly from committed text (Req 5.6) */
+    #word-buffer .candidate-text {
+      color: var(--accent-blue);
+      font-style: italic;
+      opacity: 0.85;
+    }
+
+    /* Blinking cursor */
+    #word-buffer .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1.1em;
+      background: var(--accent-blue);
+      vertical-align: middle;
+      margin-left: 2px;
+      animation: blink 1.1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    /* Camera status panel */
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .status-metric {
+      background: var(--bg-input);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .status-metric-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-dim);
+    }
+
+    .status-metric-value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status-metric-value.warn  { color: var(--accent-yellow); }
+    .status-metric-value.poor  { color: var(--accent-red); }
+    .status-metric-value.good  { color: var(--accent-green); }
+
+    /* Alert banners */
+    .alerts {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+
+    .alert {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+
+    .alert.visible {
+      display: flex;
+    }
+
+    .alert-low-light {
+      background: rgba(250,204,21,0.08);
+      border: 1px solid rgba(250,204,21,0.25);
+      color: var(--accent-yellow);
+    }
+
+    .alert-low-fps {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      color: var(--accent-red);
+    }
+
+    .alert-one-hand {
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.25);
+      color: var(--accent-blue);
+    }
+
+    /* =====================================================================
+       Controls
+       ===================================================================== */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s, border-color 0.18s, opacity 0.18s;
+      white-space: nowrap;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent-blue);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #2563eb;
+    }
+
+    .btn-primary.stop {
+      background: var(--accent-red);
+    }
+
+    .btn-primary.stop:hover:not(:disabled) {
+      background: #dc2626;
+    }
+
+    .btn-secondary {
+      background: var(--bg-card2);
+      color: var(--text-primary);
+      border-color: var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #2e3347;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border-color: var(--border);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--bg-card2);
+      color: var(--text-primary);
+    }
+
+    .btn-tts {
+      background: transparent;
+      color: var(--accent-green);
+      border-color: var(--accent-green);
+    }
+
+    .btn-tts:hover:not(:disabled) {
+      background: rgba(34,197,94,0.1);
+    }
+
+    /* =====================================================================
+       Footer
+       ===================================================================== */
+    .app-footer {
+      grid-area: footer;
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      padding: 8px 0;
+    }
+
+    /* =====================================================================
+       Scrollbar
+       ===================================================================== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 99px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ===================================================================
+       Header
+       =================================================================== -->
+  <header class="app-header" role="banner">
+    <div class="app-title">
+      <!-- hand wave icon -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+        <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+        <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+      </svg>
+      Sign Language Interpreter
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;">
+      <!-- Mode toggle: Fingerspell / Word -->
+      <div class="mode-selector" role="group" aria-label="Recognition mode">
+        <button class="mode-btn active" id="mode-fingerspell"
+                aria-pressed="true" aria-label="Fingerspell mode">
+          Fingerspell
+        </button>
+        <button class="mode-btn" id="mode-word"
+                aria-pressed="false" aria-label="Word mode">
+          Word
+        </button>
+      </div>
+
+      <!-- Backend badge -->
+      <div id="backend-badge" role="status" aria-label="Inference backend">
+        Initializing…
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================================================================
+       Main panel — camera + prediction
+       =================================================================== -->
+  <main class="main-panel" role="main">
+
+    <!-- Camera + skeleton overlay -->
+    <div class="camera-card" aria-label="Camera preview">
+      <video id="video-preview"
+             autoplay playsinline muted
+             aria-label="Webcam video feed"
+             aria-hidden="true"></video>
+
+      <canvas id="skeleton-canvas"
+              aria-hidden="true"></canvas>
+
+      <!-- Camera-corner status pills -->
+      <div class="camera-overlay-status" aria-live="polite" aria-label="Camera status">
+        <span class="status-pill" id="pill-conf" aria-label="Detection confidence">
+          Conf: —
+        </span>
+        <span class="status-pill" id="pill-lum" aria-label="Luminance">
+          Lux: —
+        </span>
+        <span class="status-pill" id="pill-fps" aria-label="Frame rate">
+          FPS: —
+        </span>
+        <span class="status-pill" id="pill-hands" aria-label="Hands visible">
+          Hands: —
+        </span>
+      </div>
+
+      <!-- No-camera placeholder (hidden when stream active) -->
+      <div class="camera-placeholder" id="camera-placeholder" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1
+                   2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span>Press <strong>Start</strong> to enable camera</span>
+      </div>
+    </div>
+
+    <!-- Prediction display card -->
+    <section class="prediction-card" aria-label="Current prediction">
+
+      <div class="prediction-row">
+        <!-- Big prediction label (Req 5.1, 5.6) -->
+        <div id="prediction-label"
+             role="status"
+             aria-live="polite"
+             aria-label="Predicted sign">—</div>
+
+        <div class="prediction-meta">
+          <span class="prediction-desc">Prediction</span>
+
+          <!-- Confidence bar (Req 2.3) -->
+          <div class="conf-row">
+            <div class="conf-bar-track" style="flex:1"
+                 role="progressbar" aria-label="Confidence"
+                 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+                 id="conf-bar-wrapper">
+              <div id="conf-bar-fill"></div>
+            </div>
+            <span id="conf-pct" aria-hidden="true">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top-5 chips -->
+      <div class="top5-chips" id="top5-chips"
+           role="list" aria-label="Top 5 predictions">
+        <!-- populated by JS -->
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ===================================================================
+       Sidebar
+       =================================================================== -->
+  <aside class="sidebar" aria-label="Output and status">
+
+    <!-- Word buffer / transcript (Req 5.1, 5.3, 5.6) -->
+    <section class="card" aria-label="Session transcript">
+      <div class="card-title">Transcript</div>
+      <div id="word-buffer" role="log" aria-live="polite" aria-label="Committed text">
+        <span class="cursor" aria-hidden="true"></span>
+      </div>
+    </section>
+
+    <!-- Controls: Start/Stop, Clear, Space, Speak, TTS -->
+    <section class="card" aria-label="Controls">
+      <div class="card-title">Controls</div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-start"
+                aria-label="Start camera and recognition">
+          <!-- play icon -->
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <polygon points="5,3 19,12 5,21"/>
+          </svg>
+          Start
+        </button>
+
+        <button class="btn btn-ghost" id="btn-clear"
+                aria-label="Clear transcript">
+          <!-- trash icon -->
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+          </svg>
+          Clear
+        </button>
+
+        <button class="btn btn-secondary" id="btn-space"
+                aria-label="Insert space into transcript">
+          Space
+        </button>
+
+        <button class="btn btn-secondary" id="btn-backspace"
+                aria-label="Backspace — delete last word">
+          ⌫ Back
+        </button>
+
+        <button class="btn btn-tts" id="btn-speak"
+                aria-label="Speak committed text aloud">
+          <!-- speaker icon -->
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          </svg>
+          Speak
+        </button>
+      </div>
+    </section>
+
+    <!-- Camera status panel (Req 9.1, 9.2, 9.3) -->
+    <section class="card" aria-label="Camera quality status">
+      <div class="card-title">Camera Status</div>
+      <div class="status-grid">
+        <div class="status-metric">
+          <span class="status-metric-label">Detection Conf</span>
+          <span class="status-metric-value" id="stat-conf"
+                aria-label="Detection confidence value">—</span>
+        </div>
+        <div class="status-metric">
+          <span class="status-metric-label">Luminance</span>
+          <span class="status-metric-value" id="stat-lum"
+                aria-label="Luminance value">—</span>
+        </div>
+        <div class="status-metric">
+          <span class="status-metric-label">FPS</span>
+          <span class="status-metric-value" id="stat-fps"
+                aria-label="Frames per second">—</span>
+        </div>
+        <div class="status-metric">
+          <span class="status-metric-label">Hands Visible</span>
+          <span class="status-metric-value" id="stat-hands"
+                aria-label="Number of hands visible">—</span>
+        </div>
+      </div>
+
+      <!-- Alert banners (Req 9.2, 9.3, 9.4) -->
+      <div class="alerts" style="margin-top:10px;" aria-live="polite">
+        <div class="alert alert-low-light" id="alert-low-light"
+             role="alert" aria-label="Low lighting warning">
+          ☀️ Low lighting detected — improve illumination for better accuracy
+        </div>
+        <div class="alert alert-low-fps" id="alert-low-fps"
+             role="alert" aria-label="Low FPS warning">
+          ⚠️ Low frame rate — recognition may be degraded
+        </div>
+        <div class="alert alert-one-hand" id="alert-one-hand"
+             role="alert" aria-label="One hand visible warning">
+          🖐 Only one hand visible — two-handed signs may be missed
+        </div>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ===================================================================
+       Footer
+       =================================================================== -->
+  <footer class="app-footer" role="contentinfo">
+    Sign Language Interpreter — in-browser inference via ONNX Runtime Web ·
+    <a href="https://github.com/google/mediapipe" target="_blank" rel="noopener"
+       style="color:inherit;text-decoration:underline;">MediaPipe</a>
+  </footer>
+
+</div><!-- .app-shell -->
+
+<!-- =====================================================================
+     Application script
+     ===================================================================== -->
+<script type="module">
+/**
+ * Main demo wiring for the Sign Language Interpreter UI.
+ *
+ * This module:
+ *  1. Starts the webcam stream and feeds frames to MediaPipe (stubbed here —
+ *     replace with the real MediaPipe Hands/Holistic init once the CDN build
+ *     is integrated).
+ *  2. Creates an OrtEngine instance for in-browser inference.
+ *  3. Wires PredictionGate, OutputBuffer, and InputQualityMonitor to the UI.
+ *  4. Handles all control button interactions.
+ *  5. Updates every UI element on each inference result.
+ *
+ * All imports resolve to the TypeScript-compiled outputs in ./dist/browser/.
+ * Run `tsc` (or your bundler) before opening this page.
+ *
+ * Requirements: 5.1, 5.3, 5.6, 9.1, 9.2, 9.3
+ */
+
+// ---------------------------------------------------------------------------
+// Module imports from compiled dist
+// ---------------------------------------------------------------------------
+
+// NOTE: These paths assume `tsc` has been run and output is in ./dist/browser/
+// Adjust the base path if using a bundler (Vite, webpack, etc.).
+import { PredictionGate }       from './dist/browser/gate.js';
+import { OutputBuffer }         from './dist/browser/output_buffer.js';
+import { InputQualityMonitor }  from './dist/browser/quality_monitor.js';
+import { OrtEngine }            from './dist/browser/ort_engine.js';
+import { normalizeLandmarks, buildTwoHandVector } from './dist/browser/landmarks.js';
+import { speak, cancelSpeech }  from './dist/browser/tts.js';
+import { glossProcessor }       from './dist/browser/gloss_processor.js';
+
+// ---------------------------------------------------------------------------
+// DOM references
+// ---------------------------------------------------------------------------
+
+const videoEl       = /** @type {HTMLVideoElement}  */ (document.getElementById('video-preview'));
+const canvasEl      = /** @type {HTMLCanvasElement} */ (document.getElementById('skeleton-canvas'));
+const placeholder   = document.getElementById('camera-placeholder');
+
+// Prediction display
+const predLabel     = document.getElementById('prediction-label');
+const confBarFill   = document.getElementById('conf-bar-fill');
+const confBarWrap   = document.getElementById('conf-bar-wrapper');
+const confPct       = document.getElementById('conf-pct');
+const top5Chips     = document.getElementById('top5-chips');
+
+// Transcript
+const wordBuffer    = document.getElementById('word-buffer');
+
+// Camera status
+const pillConf      = document.getElementById('pill-conf');
+const pillLum       = document.getElementById('pill-lum');
+const pillFps       = document.getElementById('pill-fps');
+const pillHands     = document.getElementById('pill-hands');
+const statConf      = document.getElementById('stat-conf');
+const statLum       = document.getElementById('stat-lum');
+const statFps       = document.getElementById('stat-fps');
+const statHands     = document.getElementById('stat-hands');
+const alertLowLight = document.getElementById('alert-low-light');
+const alertLowFps   = document.getElementById('alert-low-fps');
+const alertOneHand  = document.getElementById('alert-one-hand');
+
+// Controls
+const btnStart      = document.getElementById('btn-start');
+const btnClear      = document.getElementById('btn-clear');
+const btnSpace      = document.getElementById('btn-space');
+const btnBackspace  = document.getElementById('btn-backspace');
+const btnSpeak      = document.getElementById('btn-speak');
+
+// Header elements
+const backendBadge  = document.getElementById('backend-badge');
+const modeFingerspell = document.getElementById('mode-fingerspell');
+const modeWord        = document.getElementById('mode-word');
+
+// ---------------------------------------------------------------------------
+// Application state
+// ---------------------------------------------------------------------------
+
+let stream          = /** @type {MediaStream|null} */ (null);
+let animFrameId     = /** @type {number|null} */ (null);
+let isRunning       = false;
+let currentMode     = /** @type {'fingerspell'|'word'} */ ('fingerspell');
+let frameIdx        = 0;
+
+// Core browser components
+const gate      = new PredictionGate(7, 12, 20, 0.8);
+const buffer    = new OutputBuffer();
+const monitor   = new InputQualityMonitor({ onStatus: handleQualityStatus });
+
+// OrtEngine — configure paths to your compiled/quantized ONNX models.
+const engine = new OrtEngine({
+  fingerspellModelUrl: './models/fingerspell_int8.onnx',
+  wordModelUrl:        './models/word_int8.onnx',
+  fingerspellLabels:   'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
+  wordLabels:          [],  // populated from /info endpoint or labels JSON sidecar
+  onProgress: (p) => {
+    backendBadge.textContent = `Loading ${Math.round(p * 100)}%…`;
+  },
+});
+
+// Canvas 2D context for luminance sampling and skeleton drawing
+const ctx = canvasEl.getContext('2d');
+
+// Low-FPS state for the 500 ms debounce requirement (Req 9.3)
+let lowFpsSince = /** @type {number|null} */ (null);
+
+// ---------------------------------------------------------------------------
+// Engine initialization (non-blocking — UI works without models loaded)
+// ---------------------------------------------------------------------------
+
+(async () => {
+  try {
+    await engine.load();
+    const backend = engine.backendName ?? 'wasm';
+    backendBadge.textContent   = backend.toUpperCase();
+    backendBadge.className     = `${backend}`;
+    backendBadge.setAttribute('aria-label', `Inference backend: ${backend.toUpperCase()}`);
+
+    // Staged load: start T5 gloss processor after ONNX models are ready
+    glossProcessor.load().catch(() => { /* graceful degradation */ });
+  } catch (err) {
+    backendBadge.textContent   = 'Model error';
+    console.warn('[ASLDemo] Engine failed to load:', err);
+  }
+})();
+
+// ---------------------------------------------------------------------------
+// Mode toggle
+// ---------------------------------------------------------------------------
+
+modeFingerspell.addEventListener('click', () => {
+  currentMode = 'fingerspell';
+  modeFingerspell.classList.add('active');
+  modeFingerspell.setAttribute('aria-pressed', 'true');
+  modeWord.classList.remove('active');
+  modeWord.setAttribute('aria-pressed', 'false');
+  gate.reset();
+  buffer.clear();
+  renderBuffer();
+});
+
+modeWord.addEventListener('click', () => {
+  currentMode = 'word';
+  modeWord.classList.add('active');
+  modeWord.setAttribute('aria-pressed', 'true');
+  modeFingerspell.classList.remove('active');
+  modeFingerspell.setAttribute('aria-pressed', 'false');
+  gate.reset();
+  buffer.clear();
+  renderBuffer();
+});
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+btnStart.addEventListener('click', async () => {
+  if (isRunning) {
+    stopCamera();
+  } else {
+    await startCamera();
+  }
+});
+
+btnClear.addEventListener('click', () => {
+  buffer.clear();
+  gate.reset();
+  renderBuffer();
+});
+
+btnSpace.addEventListener('click', () => {
+  buffer.accept(' ');
+  renderBuffer();
+});
+
+btnBackspace.addEventListener('click', () => {
+  buffer.backspace();
+  renderBuffer();
+});
+
+btnSpeak.addEventListener('click', () => {
+  const { committed } = buffer.render();
+  const text = committed.join('');
+  if (text.trim().length === 0) return;
+  try {
+    speak(text);
+  } catch (err) {
+    console.warn('[ASLDemo] TTS fidelity check failed:', err);
+  }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ' && e.target === document.body) {
+    e.preventDefault();
+    btnSpace.click();
+  }
+  if (e.key === 'Backspace' && e.target === document.body) {
+    e.preventDefault();
+    btnBackspace.click();
+  }
+  if ((e.key === 's' || e.key === 'S') && e.target === document.body) {
+    btnSpeak.click();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Camera lifecycle
+// ---------------------------------------------------------------------------
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+
+    // Resize canvas to match video dimensions once metadata loads
+    videoEl.addEventListener('loadedmetadata', () => {
+      canvasEl.width  = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+    }, { once: true });
+
+    placeholder.style.display = 'none';
+    placeholder.setAttribute('aria-hidden', 'true');
+
+    isRunning = true;
+    frameIdx  = 0;
+    gate.reset();
+    monitor.reset();
+    setStartButtonStop();
+    scheduleAnimFrame();
+  } catch (err) {
+    console.error('[ASLDemo] Camera access denied:', err);
+    alert('Camera permission denied. Please allow camera access and reload.');
+  }
+}
+
+function stopCamera() {
+  isRunning = false;
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  videoEl.srcObject = null;
+  cancelSpeech();
+
+  placeholder.style.display = 'flex';
+  placeholder.setAttribute('aria-hidden', 'false');
+  setStartButtonStart();
+}
+
+function setStartButtonStop() {
+  btnStart.textContent = '';
+  btnStart.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="4" width="4" height="16"/>
+      <rect x="14" y="4" width="4" height="16"/>
+    </svg>
+    Stop`;
+  btnStart.classList.add('stop');
+  btnStart.setAttribute('aria-label', 'Stop camera and recognition');
+}
+
+function setStartButtonStart() {
+  btnStart.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <polygon points="5,3 19,12 5,21"/>
+    </svg>
+    Start`;
+  btnStart.classList.remove('stop');
+  btnStart.setAttribute('aria-label', 'Start camera and recognition');
+}
+
+// ---------------------------------------------------------------------------
+// Animation / inference loop
+// ---------------------------------------------------------------------------
+
+function scheduleAnimFrame() {
+  animFrameId = requestAnimationFrame(onAnimFrame);
+}
+
+async function onAnimFrame(timestampMs) {
+  if (!isRunning) return;
+  frameIdx++;
+
+  // 1. Draw current video frame onto the canvas (for luminance sampling + skeleton)
+  if (canvasEl.width > 0) {
+    ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+  }
+
+  // 2. Run MediaPipe (replace stub with real MediaPipe integration)
+  const mpResult = runMediaPipeStub(timestampMs);
+
+  // 3. Update quality monitor (Req 9.1–9.4)
+  monitor.update({
+    timestampMs,
+    detectionConf:  mpResult.detectionConf,
+    handLandmarks:  mpResult.handLandmarks,
+    canvas:  canvasEl,
+    ctx,
+  });
+
+  // 4. Draw skeleton overlay
+  if (mpResult.handLandmarks.length > 0) {
+    drawSkeleton(ctx, mpResult.handLandmarks, canvasEl.width, canvasEl.height);
+  }
+
+  // 5. Run inference when confidence gate passes (Req 1.7)
+  if (
+    mpResult.detectionConf >= 0.8 &&
+    mpResult.visibleLandmarkCount >= 18 &&
+    engine.backendName !== null
+  ) {
+    await runInference(mpResult);
+  }
+
+  scheduleAnimFrame();
+}
+
+// ---------------------------------------------------------------------------
+// MediaPipe stub (replace with real integration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Stub that returns zero-value landmarks until real MediaPipe is wired up.
+ * Replace this function with actual MediaPipe Holistic / Hands results.
+ *
+ * @param {number} _ts Frame timestamp (unused by stub)
+ * @returns MediaPipe-like result object
+ */
+function runMediaPipeStub(_ts) {
+  // When real MediaPipe is integrated, return:
+  // {
+  //   detectionConf: <float 0–1 from hands result>,
+  //   visibleLandmarkCount: <count of landmarks with visibility >= 0.5>,
+  //   handLandmarks: <array of arrays of [x,y,z] per hand>,
+  //   handedness: <['Right'] | ['Left'] | ['Right','Left'] | []>,
+  // }
+  return {
+    detectionConf:        0,
+    visibleLandmarkCount: 0,
+    handLandmarks:        [],
+    handedness:           [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inference
+// ---------------------------------------------------------------------------
+
+async function runInference(mpResult) {
+  try {
+    const t0 = performance.now();
+
+    let top5;
+    if (currentMode === 'fingerspell') {
+      // Use the dominant (first) hand
+      const handLm = mpResult.handLandmarks[0];
+      if (!handLm) return;
+      const isLeft = (mpResult.handedness[0] === 'Left');
+      const vec = normalizeLandmarks(handLm, isLeft);
+      if (!vec) return;
+      top5 = await engine.runFingerspell(vec);
+    } else {
+      // Build two-hand vector for word mode
+      let rightLm = null, leftLm = null;
+      for (let h = 0; h < mpResult.handLandmarks.length; h++) {
+        if (mpResult.handedness[h] === 'Right') rightLm = mpResult.handLandmarks[h];
+        else leftLm = mpResult.handLandmarks[h];
+      }
+      // buildTwoHandVector returns a Float32Array(126) directly
+      // but runWord expects Float32Array[] (frame buffer) — accumulate externally
+      // For simplicity here we run a single-frame buffer
+      const vec = buildTwoHandVector(rightLm, leftLm);
+      top5 = await engine.runWord([vec]);
+    }
+
+    const latencyMs = performance.now() - t0;
+
+    if (!top5 || top5.length === 0) return;
+
+    const best = top5[0];
+
+    // Feed PredictionGate (Req 2.4, 9.5, 9.6)
+    const accepted = gate.update(best.label, best.prob);
+
+    if (accepted) {
+      buffer.accept(accepted);
+    } else {
+      // Show in-progress candidate distinctly (Req 5.6)
+      buffer.setCandidate(best.prob >= 0.5 ? best.label : null);
+    }
+
+    // Update UI
+    updatePredictionDisplay(best.label, best.prob, top5, latencyMs);
+    renderBuffer();
+
+  } catch (err) {
+    console.warn('[ASLDemo] Inference error:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI updaters
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the big prediction label, confidence bar, and top-5 chips.
+ *
+ * @param {string}   label   Predicted label
+ * @param {number}   conf    Confidence in [0, 1]
+ * @param {Array}    top5    Array of { label, prob }
+ * @param {number}   latMs   Latency in ms
+ */
+function updatePredictionDisplay(label, conf, top5, latMs) {
+  // Big label — green if confident (>=0.8), gray otherwise (Req 5.6)
+  predLabel.textContent = label;
+  if (conf >= 0.8) {
+    predLabel.classList.add('confident');
+  } else {
+    predLabel.classList.remove('confident');
+  }
+
+  // Confidence bar (Req 2.3)
+  const pct = Math.round(conf * 100);
+  confBarFill.style.width = `${pct}%`;
+  confPct.textContent     = `${pct}%`;
+  confBarWrap.setAttribute('aria-valuenow', String(pct));
+  if (conf >= 0.8) {
+    confBarFill.classList.add('confident');
+  } else {
+    confBarFill.classList.remove('confident');
+  }
+
+  // Top-5 chips
+  top5Chips.innerHTML = '';
+  top5.forEach((item, i) => {
+    const chip = document.createElement('div');
+    chip.className = `chip${i === 0 ? ' top-chip' : ''}`;
+    chip.setAttribute('role', 'listitem');
+    chip.setAttribute('aria-label', `${item.label} ${Math.round(item.prob * 100)}%`);
+    chip.innerHTML = `
+      <span>${item.label}</span>
+      <span class="chip-prob">${Math.round(item.prob * 100)}%</span>
+    `;
+    top5Chips.appendChild(chip);
+  });
+}
+
+/**
+ * Render the word buffer with committed text + blinking cursor + candidate.
+ * Requirements: 5.1, 5.3, 5.6
+ */
+function renderBuffer() {
+  const { committed, candidate } = buffer.render();
+  const text = committed.join('');
+
+  let html = '';
+  if (text.length > 0) {
+    html += `<span class="committed-text">${escapeHtml(text)}</span>`;
+  }
+  if (candidate) {
+    html += `<span class="candidate-text"> ${escapeHtml(candidate)}</span>`;
+  }
+  html += '<span class="cursor" aria-hidden="true"></span>';
+
+  wordBuffer.innerHTML = html;
+  // Scroll to show the latest text
+  wordBuffer.scrollTop = wordBuffer.scrollHeight;
+}
+
+/**
+ * Handle quality status updates from InputQualityMonitor.
+ * Requirements: 9.1, 9.2, 9.3, 9.4
+ *
+ * @param {import('./dist/browser/types.js').QualityStatus} qs
+ */
+function handleQualityStatus(qs) {
+  // Numeric metrics
+  const confStr  = (qs.detectionConf * 100).toFixed(0) + '%';
+  const lumStr   = qs.luminance.toFixed(0);
+  const fpsStr   = qs.fps.toFixed(1);
+  const handsStr = String(qs.handsVisible);
+
+  // Sidebar metric values
+  statConf.textContent  = confStr;
+  statLum.textContent   = lumStr;
+  statFps.textContent   = fpsStr;
+  statHands.textContent = handsStr;
+
+  // Colour each metric by threshold
+  applyMetricClass(statConf,  qs.detectionConf >= 0.8 ? 'good' : qs.detectionConf >= 0.5 ? 'warn' : 'poor');
+  applyMetricClass(statLum,   qs.luminance >= 80 ? 'good' : qs.luminance >= 40 ? 'warn' : 'poor');
+  applyMetricClass(statFps,   qs.fps >= 25 ? 'good' : qs.fps >= 15 ? 'warn' : 'poor');
+  applyMetricClass(statHands, qs.handsVisible > 0 ? 'good' : 'warn');
+
+  // Corner pills in camera view
+  updatePill(pillConf,  `Conf: ${confStr}`,  qs.detectionConf >= 0.8 ? 'good' : 'warn');
+  updatePill(pillLum,   `Lux: ${lumStr}`,    qs.luminance >= 80 ? 'good' : 'warn');
+  updatePill(pillFps,   `FPS: ${fpsStr}`,    qs.fps >= 25 ? 'good' : 'warn');
+  updatePill(pillHands, `Hands: ${handsStr}`, qs.handsVisible > 0 ? 'good' : 'warn');
+
+  // Alert banners
+  // Low-lighting (Req 9.2): luminance < 80
+  toggleAlert(alertLowLight, qs.luminance < 80 && qs.luminance > 0);
+
+  // Low-FPS (Req 9.3): fps < 25 for > 500ms — monitor already debounces internally
+  toggleAlert(alertLowFps, qs.fps < 25 && qs.fps > 0);
+
+  // One-hand visible during two-hand sign (Req 9.4)
+  toggleAlert(alertOneHand, qs.handsVisible === 1 && currentMode === 'word');
+}
+
+function applyMetricClass(el, cls) {
+  el.classList.remove('good', 'warn', 'poor');
+  el.classList.add(cls);
+}
+
+function updatePill(el, text, cls) {
+  el.textContent = text;
+  el.classList.remove('good', 'warn', 'poor');
+  el.classList.add(cls);
+}
+
+function toggleAlert(el, show) {
+  if (show) {
+    el.classList.add('visible');
+  } else {
+    el.classList.remove('visible');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton overlay drawing
+// ---------------------------------------------------------------------------
+
+/** MediaPipe hand landmark connections (21 keypoints). */
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],           // thumb
+  [0,5],[5,6],[6,7],[7,8],           // index
+  [5,9],[9,10],[10,11],[11,12],      // middle
+  [9,13],[13,14],[14,15],[15,16],    // ring
+  [13,17],[17,18],[18,19],[19,20],   // pinky
+  [0,17],                            // palm
+];
+
+/**
+ * Draw hand skeleton landmarks onto the overlay canvas.
+ *
+ * @param {CanvasRenderingContext2D} ctx2d
+ * @param {number[][][]} handsLm  Array of hands, each [21][3] normalised coords
+ * @param {number} w Canvas width
+ * @param {number} h Canvas height
+ */
+function drawSkeleton(ctx2d, handsLm, w, h) {
+  ctx2d.save();
+
+  for (const hand of handsLm) {
+    if (!hand || hand.length < 21) continue;
+
+    // Draw connections
+    ctx2d.strokeStyle = 'rgba(34,197,94,0.75)';
+    ctx2d.lineWidth   = 2;
+    ctx2d.beginPath();
+    for (const [a, b] of HAND_CONNECTIONS) {
+      const ax = hand[a][0] * w, ay = hand[a][1] * h;
+      const bx = hand[b][0] * w, by = hand[b][1] * h;
+      ctx2d.moveTo(ax, ay);
+      ctx2d.lineTo(bx, by);
+    }
+    ctx2d.stroke();
+
+    // Draw keypoints
+    for (const [x, y] of hand) {
+      ctx2d.beginPath();
+      ctx2d.arc(x * w, y * h, 3.5, 0, Math.PI * 2);
+      ctx2d.fillStyle = '#fff';
+      ctx2d.fill();
+      ctx2d.strokeStyle = 'rgba(34,197,94,0.9)';
+      ctx2d.lineWidth   = 1.5;
+      ctx2d.stroke();
+    }
+  }
+
+  ctx2d.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Initial render
+renderBuffer();
+
+</script>
+</body>
+</html>

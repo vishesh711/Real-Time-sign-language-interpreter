@@ -10,3 +10,4 @@ opencv-python==4.10.0.84
 pandas==2.2.2
 scikit-learn==1.5.1
 pytest==8.3.2
+pyttsx3==2.90

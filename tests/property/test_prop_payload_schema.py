@@ -446,3 +446,142 @@ def test_landmark_json_round_trip(landmarks):
             f"Max error: {np.max(np.abs(recovered - original))}"
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Property 6 — Landmark payload contains no raw image data
+# Feature: sign-language-interpreter, Property 6: Landmark payload contains no raw image data
+# **Validates: Requirements 3.5, 4.4**
+# ---------------------------------------------------------------------------
+
+# Image-pixel arrays are typically 640×480 = 307_200 elements, or at minimum
+# a small thumbnail (e.g. 24×24 = 576 elements). The guard threshold from
+# the design doc is 512 elements — any array exceeding this length cannot be
+# a valid landmark payload and is suspicious as raw image data.
+_MAX_ARRAY_LEN_ALLOWED = 512
+
+
+@st.composite
+def fingerspell_payload(draw):
+    """
+    Generate a valid fingerspell WebSocket payload:
+        {"landmarks": [63 floats], "handedness": "Right" | "Left"}
+
+    Values are drawn from the normalized range [-3.0, 3.0].
+    """
+    # Feature: sign-language-interpreter, Property 6: Landmark payload contains no raw image data
+    landmarks = draw(
+        st.lists(
+            st.floats(-3.0, 3.0, allow_nan=False, allow_infinity=False),
+            min_size=FINGERSPELL_DIM,
+            max_size=FINGERSPELL_DIM,
+        )
+    )
+    handedness = draw(st.sampled_from(["Right", "Left"]))
+    return {"landmarks": landmarks, "handedness": handedness}
+
+
+@st.composite
+def word_payload(draw):
+    """
+    Generate a valid word WebSocket payload:
+        {"landmarks": [126 floats], "frame_idx": non-negative int}
+
+    Values are drawn from the normalized range [-3.0, 3.0].
+    """
+    # Feature: sign-language-interpreter, Property 6: Landmark payload contains no raw image data
+    landmarks = draw(
+        st.lists(
+            st.floats(-3.0, 3.0, allow_nan=False, allow_infinity=False),
+            min_size=WORD_DIM,
+            max_size=WORD_DIM,
+        )
+    )
+    frame_idx = draw(st.integers(min_value=0, max_value=10_000))
+    return {"landmarks": landmarks, "frame_idx": frame_idx}
+
+
+@given(payload=fingerspell_payload())
+@settings(max_examples=100)
+def test_fingerspell_payload_contains_no_raw_image_data(payload):
+    """
+    **Feature: sign-language-interpreter, Property 6: Landmark payload contains no raw image data**
+    **Validates: Requirements 3.5, 4.4**
+
+    For any constructed fingerspell WebSocket message, the serialized JSON payload
+    SHALL contain only numeric arrays of expected length (63 floats) and SHALL NOT
+    contain any array with length greater than 512 that could encode image pixel data.
+    """
+    serialized = json.dumps(payload)
+    deserialized = json.loads(serialized)
+
+    # Collect all array-typed values in the payload
+    array_fields = {
+        key: value
+        for key, value in deserialized.items()
+        if isinstance(value, list)
+    }
+
+    # Every array field must not exceed the image-data guard threshold
+    for key, arr in array_fields.items():
+        assert len(arr) <= _MAX_ARRAY_LEN_ALLOWED, (
+            f"Field '{key}' has length {len(arr)} which exceeds the "
+            f"image-data guard threshold of {_MAX_ARRAY_LEN_ALLOWED}. "
+            f"This could encode raw pixel data."
+        )
+
+    # The 'landmarks' field must be exactly 63 elements
+    assert "landmarks" in deserialized, "Payload must contain a 'landmarks' field"
+    assert len(deserialized["landmarks"]) == FINGERSPELL_DIM, (
+        f"Fingerspell landmarks must be exactly {FINGERSPELL_DIM} elements, "
+        f"got {len(deserialized['landmarks'])}"
+    )
+
+    # All landmark values must be finite floats (no pixel-range integers 0–255)
+    for i, val in enumerate(deserialized["landmarks"]):
+        assert isinstance(val, (int, float)), (
+            f"landmarks[{i}] must be numeric, got {type(val).__name__}"
+        )
+
+
+@given(payload=word_payload())
+@settings(max_examples=100)
+def test_word_payload_contains_no_raw_image_data(payload):
+    """
+    **Feature: sign-language-interpreter, Property 6: Landmark payload contains no raw image data**
+    **Validates: Requirements 3.5, 4.4**
+
+    For any constructed word WebSocket message, the serialized JSON payload
+    SHALL contain only numeric arrays of expected length (126 floats) and SHALL NOT
+    contain any array with length greater than 512 that could encode image pixel data.
+    """
+    serialized = json.dumps(payload)
+    deserialized = json.loads(serialized)
+
+    # Collect all array-typed values in the payload
+    array_fields = {
+        key: value
+        for key, value in deserialized.items()
+        if isinstance(value, list)
+    }
+
+    # Every array field must not exceed the image-data guard threshold
+    for key, arr in array_fields.items():
+        assert len(arr) <= _MAX_ARRAY_LEN_ALLOWED, (
+            f"Field '{key}' has length {len(arr)} which exceeds the "
+            f"image-data guard threshold of {_MAX_ARRAY_LEN_ALLOWED}. "
+            f"This could encode raw pixel data."
+        )
+
+    # The 'landmarks' field must be exactly 126 elements
+    assert "landmarks" in deserialized, "Payload must contain a 'landmarks' field"
+    assert len(deserialized["landmarks"]) == WORD_DIM, (
+        f"Word landmarks must be exactly {WORD_DIM} elements, "
+        f"got {len(deserialized['landmarks'])}"
+    )
+
+    # All landmark values must be finite floats (no pixel-range integers 0–255)
+    for i, val in enumerate(deserialized["landmarks"]):
+        assert isinstance(val, (int, float)), (
+            f"landmarks[{i}] must be numeric, got {type(val).__name__}"
+        )

@@ -131,3 +131,184 @@ describe('buildTwoHandVector', () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Property 9 — collapseAndSegment (fingerspelling collapse correctness)
+// ---------------------------------------------------------------------------
+
+import { collapseAndSegment } from '../../browser/postprocess';
+
+const MIN_LETTER_HOLD = 4;
+const PAUSE_THRESHOLD = 8;
+
+/**
+ * Build a stream with one letter repeated `runLen` times followed by
+ * `gapLen` null frames.
+ */
+function makeStream(
+  letter: string,
+  runLen: number,
+  gapLen: number,
+): (string | null)[] {
+  return [
+    ...Array(runLen).fill(letter),
+    ...Array(gapLen).fill(null),
+  ];
+}
+
+describe('collapseAndSegment — Property 9', () => {
+  /**
+   * Feature: sign-language-interpreter, Property 9: Fingerspelling collapse correctness
+   * Validates: Requirements 5.7
+   *
+   * Property 9a: For any single-letter run of length ≥ minLetterHold followed
+   * by ≥ pauseThreshold nulls, the function produces exactly one word
+   * containing exactly one letter.
+   */
+  it(
+    'Property 9a: run ≥ minLetterHold + gap ≥ pauseThreshold → exactly one word with one letter',
+    () => {
+      fc.assert(
+        fc.property(
+          // A single uppercase letter
+          fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')),
+          // Run length ≥ minLetterHold
+          fc.integer({ min: MIN_LETTER_HOLD, max: 20 }),
+          // Gap length ≥ pauseThreshold
+          fc.integer({ min: PAUSE_THRESHOLD, max: 20 }),
+          (letter, runLen, gapLen) => {
+            const stream = makeStream(letter, runLen, gapLen);
+            const words = collapseAndSegment(stream, PAUSE_THRESHOLD, MIN_LETTER_HOLD);
+
+            // Exactly one word
+            expect(words).toHaveLength(1);
+            // That word contains exactly one letter (the collapsed run)
+            expect(words[0]).toBe(letter);
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+  );
+
+  /**
+   * Feature: sign-language-interpreter, Property 9: Fingerspelling collapse correctness
+   * Validates: Requirements 5.7
+   *
+   * Property 9b: For any run of length < minLetterHold, the letter is NOT
+   * included in any output word.
+   */
+  it(
+    'Property 9b: run < minLetterHold → letter absent from all output words',
+    () => {
+      fc.assert(
+        fc.property(
+          // A single uppercase letter
+          fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')),
+          // Run length strictly less than minLetterHold (1..3)
+          fc.integer({ min: 1, max: MIN_LETTER_HOLD - 1 }),
+          // Trailing gap of any length (0 or more)
+          fc.integer({ min: 0, max: 20 }),
+          (letter, runLen, trailingGap) => {
+            const stream: (string | null)[] = [
+              ...Array(runLen).fill(letter),
+              ...Array(trailingGap).fill(null),
+            ];
+            const words = collapseAndSegment(stream, PAUSE_THRESHOLD, MIN_LETTER_HOLD);
+
+            // The letter should NOT appear in any reconstructed word
+            for (const word of words) {
+              expect(word).not.toContain(letter);
+            }
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+  );
+
+  /**
+   * Feature: sign-language-interpreter, Property 9: Fingerspelling collapse correctness
+   * Validates: Requirements 5.7
+   *
+   * Property 9c: For any gap of ≥ pauseThreshold nulls between two letter
+   * groups (each with runLen ≥ minLetterHold), the output has at least two
+   * words — one per group.
+   */
+  it(
+    'Property 9c: gap ≥ pauseThreshold between two valid groups → at least two words',
+    () => {
+      fc.assert(
+        fc.property(
+          // First letter
+          fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')),
+          // Second letter (may equal the first — still two separate words)
+          fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')),
+          // Run lengths ≥ minLetterHold for both groups
+          fc.integer({ min: MIN_LETTER_HOLD, max: 20 }),
+          fc.integer({ min: MIN_LETTER_HOLD, max: 20 }),
+          // Gap between the groups ≥ pauseThreshold
+          fc.integer({ min: PAUSE_THRESHOLD, max: 20 }),
+          (letterA, letterB, runA, runB, gap) => {
+            const stream: (string | null)[] = [
+              ...Array(runA).fill(letterA),
+              ...Array(gap).fill(null),
+              ...Array(runB).fill(letterB),
+            ];
+            const words = collapseAndSegment(stream, PAUSE_THRESHOLD, MIN_LETTER_HOLD);
+
+            // At least two words must be produced
+            expect(words.length).toBeGreaterThanOrEqual(2);
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+  );
+
+  /**
+   * Feature: sign-language-interpreter, Property 9: Fingerspelling collapse correctness
+   * Validates: Requirements 5.7
+   *
+   * Unit test: Spell "HELLO" using the stream:
+   *   H×4, null×8, E×4, null×8, L×4, null×4, L×4, null×8, O×4
+   *
+   * Each null×8 gap equals pauseThreshold and therefore creates a word
+   * boundary, so the algorithm produces four single-letter words for H, E,
+   * and O plus one two-letter word for the double-L.
+   *
+   * The null×4 gap between the two L runs is below pauseThreshold so both L
+   * runs belong to the same word segment. Because the second L run re-starts
+   * a fresh identical run (runLetter reset to null during the gap), both runs
+   * are flushed separately and each meets minLetterHold, giving "LL" — i.e.
+   * the double-L is preserved (not over-collapsed to a single L).
+   *
+   * Expected: ["H", "E", "LL", "O"]
+   */
+  it('Unit: HELLO stream produces ["H", "E", "LL", "O"] — double-L preserved', () => {
+    const stream: (string | null)[] = [
+      // H  (run length 4 = minLetterHold)
+      'H', 'H', 'H', 'H',
+      // word boundary (8 nulls = pauseThreshold)
+      null, null, null, null, null, null, null, null,
+      // E  (run length 4)
+      'E', 'E', 'E', 'E',
+      // word boundary (8 nulls)
+      null, null, null, null, null, null, null, null,
+      // first L  (run length 4)
+      'L', 'L', 'L', 'L',
+      // short gap (4 nulls < pauseThreshold) — same word segment
+      null, null, null, null,
+      // second L  (run length 4 — new run after gap, also meets minLetterHold)
+      'L', 'L', 'L', 'L',
+      // word boundary (8 nulls)
+      null, null, null, null, null, null, null, null,
+      // O  (run length 4)
+      'O', 'O', 'O', 'O',
+    ];
+
+    const words = collapseAndSegment(stream, PAUSE_THRESHOLD, MIN_LETTER_HOLD);
+    // Each null×8 gap is a word boundary → 4 words: H, E, LL, O
+    expect(words).toEqual(['H', 'E', 'LL', 'O']);
+  });
+});

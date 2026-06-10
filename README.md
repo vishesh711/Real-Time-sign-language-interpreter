@@ -74,9 +74,11 @@ Output (text panel + TTS)
 
 ### Python Setup
 
+Use a **project-local virtual environment** — do not reuse another project's venv (e.g. `agentapp/.venv`), as conflicting or corrupted packages can break installs.
+
 ```bash
-# Create and activate a virtual environment
-python -m venv .venv
+# Create and activate a virtual environment (Python 3.10+)
+python3.11 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies

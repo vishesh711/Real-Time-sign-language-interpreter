@@ -125,6 +125,24 @@ def _load_model(
 # ONNX export  (Requirement 7.1)
 # ---------------------------------------------------------------------------
 
+def _torch_onnx_export(model: torch.nn.Module, dummy_input: torch.Tensor, output_path: Path, *, opset: int) -> None:
+    """Call torch.onnx.export, passing dynamo=False when supported (PyTorch 2.9+)."""
+    kwargs: dict = {
+        "export_params": True,
+        "opset_version": opset,
+        "do_constant_folding": True,
+        "input_names": ["landmarks"],
+        "output_names": ["logits"],
+        "dynamic_axes": {"landmarks": {0: "batch"}, "logits": {0: "batch"}},
+    }
+    import inspect
+
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        kwargs["dynamo"] = False
+
+    torch.onnx.export(model, dummy_input, str(output_path), **kwargs)
+
+
 def export_to_onnx(
     model: torch.nn.Module,
     output_path: Path,
@@ -150,20 +168,7 @@ def export_to_onnx(
     """
     dummy_input = torch.zeros(1, input_dim, dtype=torch.float32)
 
-    torch.onnx.export(
-        model,
-        dummy_input,
-        str(output_path),
-        export_params=True,
-        opset_version=opset,
-        do_constant_folding=True,
-        input_names=["landmarks"],
-        output_names=["logits"],
-        dynamic_axes={
-            "landmarks": {0: "batch"},
-            "logits": {0: "batch"},
-        },
-    )
+    _torch_onnx_export(model, dummy_input, output_path, opset=opset)
 
     # Validate with ONNX model checker (Requirement 7.1)
     proto = onnx.load(str(output_path))
@@ -192,6 +197,7 @@ def quantize_to_int8(fp32_onnx_path: Path, int8_onnx_path: Path) -> None:
         model_input=str(fp32_onnx_path),
         model_output=str(int8_onnx_path),
         weight_type=QuantType.QInt8,
+        per_channel=True,
     )
     print(f"  ✓  INT8-quantized model written: {int8_onnx_path}")
 
